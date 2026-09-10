@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   subtrack:
     build:
@@ -6,8 +8,8 @@ services:
     image: subtrack:latest
     container_name: subtrack
     restart: unless-stopped
-    ports:
-      - "${HOST_PORT:-3000}:3000"
+    # ports:
+    #   - "${HOST_PORT:-3000}:3000"  # Optional: You can comment this out since Traefik routes internally via the network
     volumes:
       - ./data:/app/data
     env_file:
@@ -16,3 +18,15 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - DB_PATH=/app/data/subscriptions.db
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.subtrack.rule=Host(`subtrack.jaymayu.com`)"
+      - "traefik.http.routers.subtrack.entrypoints=websecure"
+      - "traefik.http.routers.subtrack.tls.certresolver=letsencrypt"
+      - "traefik.http.services.subtrack.loadbalancer.server.port=3000"
+    networks:
+      - web
+
+networks:
+  web:
+    external: true
