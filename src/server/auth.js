@@ -16,7 +16,7 @@ export function createSessionToken(secret) {
   return `${base64Payload}.${signature}`;
 }
 
-export function verifySessionToken(token, secret) {
+export function verifySessionToken(token, secret, maxAgeMs = 30 * 24 * 60 * 60 * 1000) {
   if (typeof token !== 'string' || typeof secret !== 'string' || !token.includes('.')) {
     return false;
   }
@@ -31,7 +31,19 @@ export function verifySessionToken(token, secret) {
   if (sigBuf.length !== expBuf.length) {
     return false;
   }
-  return crypto.timingSafeEqual(sigBuf, expBuf);
+  if (!crypto.timingSafeEqual(sigBuf, expBuf)) {
+    return false;
+  }
+
+  try {
+    const { iat } = JSON.parse(Buffer.from(base64Payload, 'base64url').toString('utf8'));
+    if (!Number.isFinite(iat) || (Date.now() - iat) > maxAgeMs || (Date.now() - iat) < -60000) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function createAuthMiddleware(secret) {

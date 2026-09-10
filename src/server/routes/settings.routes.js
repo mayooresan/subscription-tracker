@@ -34,7 +34,7 @@ export function createSettingsRouter(config = {}) {
 
   router.put('/settings', (req, res) => {
     const db = getDb();
-    const { telegram_bot_token, telegram_chat_id, notify_hours_before, currency_symbol } = req.body || {};
+    const { telegram_bot_token, notify_hours_before, currency_symbol } = req.body || {};
 
     if (notify_hours_before !== undefined && notify_hours_before !== null) {
       const parsed = Number(notify_hours_before);
@@ -50,6 +50,10 @@ export function createSettingsRouter(config = {}) {
       ? telegram_bot_token.trim()
       : (current.telegram_bot_token ?? null);
 
+    const chatIdToSave = req.body?.telegram_chat_id != null
+      ? String(req.body.telegram_chat_id).trim()
+      : null;
+
     const parsedHours = (notify_hours_before !== undefined && notify_hours_before !== null)
       ? Number(notify_hours_before)
       : null;
@@ -64,7 +68,7 @@ export function createSettingsRouter(config = {}) {
       WHERE id = 1
     `).run(
       tokenToSave,
-      telegram_chat_id !== undefined ? telegram_chat_id : null,
+      chatIdToSave,
       parsedHours,
       currency_symbol !== undefined ? currency_symbol : null
     );
@@ -79,10 +83,8 @@ export function createSettingsRouter(config = {}) {
     const botToken = (!isMaskedOrEmpty(candidateToken) ? candidateToken.trim() : null)
       || settings.telegram_bot_token
       || config.telegramBotToken;
-    const candidateChatId = req.body?.telegram_chat_id;
-    const chatId = (typeof candidateChatId === 'string' && candidateChatId.trim())
-      ? candidateChatId.trim()
-      : (settings.telegram_chat_id || config.telegramChatId);
+    const candidateChatId = req.body?.telegram_chat_id != null ? String(req.body.telegram_chat_id).trim() : null;
+    const chatId = candidateChatId || (settings.telegram_chat_id || config.telegramChatId);
 
     const testMsg = `🚀 *Subscription Tracker Test Alert*\n\nYour Telegram notification configuration is working successfully!`;
     const result = await sendTelegramMessage({ botToken, chatId, message: testMsg });

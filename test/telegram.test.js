@@ -387,3 +387,38 @@ test('POST /api/settings/test-telegram guards against masked tokens and falls ba
   assert.equal(usedUrl, 'https://api.telegram.org/botsaved-db-token/sendMessage');
 });
 
+test('PUT /api/settings coerces numeric telegram_chat_id to string', async () => {
+  await supertest(app)
+    .put('/api/settings')
+    .send({ telegram_chat_id: 987654321 })
+    .expect(200);
+
+  const res = await supertest(app)
+    .get('/api/settings')
+    .expect(200);
+
+  assert.equal(res.body.telegram_chat_id, '987654321');
+});
+
+test('POST /api/settings/test-telegram coerces numeric telegram_chat_id to string', async () => {
+  let sentBody = null;
+  global.fetch = async (url, options) => {
+    sentBody = JSON.parse(options.body);
+    return {
+      ok: true,
+      json: async () => ({ ok: true })
+    };
+  };
+
+  const res = await supertest(app)
+    .post('/api/settings/test-telegram')
+    .send({
+      telegram_bot_token: 'valid-test-token',
+      telegram_chat_id: 123456789
+    })
+    .expect(200);
+
+  assert.equal(res.body.success, true);
+  assert.equal(sentBody.chat_id, '123456789');
+});
+

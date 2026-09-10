@@ -22,7 +22,11 @@ export function createAuthRouter(config) {
   });
 
   router.post('/logout', (req, res) => {
-    res.clearCookie('sub_session');
+    res.clearCookie('sub_session', {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+    });
     return res.json({ success: true, message: 'Logged out' });
   });
 

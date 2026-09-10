@@ -83,6 +83,21 @@ test('fetchJson dispatches auth-unauthorized event on 401', async () => {
   assert.equal(dispatchedEvent.type, 'auth-unauthorized');
 });
 
+test('fetchJson handles 401 safely when window is undefined (SSR)', async () => {
+  delete globalThis.window;
+
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 401,
+    json: async () => ({ error: 'Unauthorized' }),
+  });
+
+  await assert.rejects(
+    () => fetchJson('/protected'),
+    { message: 'Unauthorized' }
+  );
+});
+
 test('api endpoints invoke fetchJson with appropriate parameters', async () => {
   const calls = [];
   globalThis.fetch = async (url, options = {}) => {

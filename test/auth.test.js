@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
@@ -32,6 +33,21 @@ test('createSessionToken creates token verifiable by verifySessionToken', () => 
   assert.equal(verifySessionToken('', secret), false);
   assert.equal(verifySessionToken('invalid', secret), false);
   assert.equal(verifySessionToken(null, secret), false);
+});
+
+test('verifySessionToken returns false for expired tokens', () => {
+  const secret = 'test-secret-key';
+  const expiredIat = Date.now() - (31 * 24 * 60 * 60 * 1000);
+  const payload = JSON.stringify({ iat: expiredIat });
+  const base64Payload = Buffer.from(payload).toString('base64url');
+  const signature = crypto.createHmac('sha256', secret).update(base64Payload).digest('base64url');
+  const expiredToken = `${base64Payload}.${signature}`;
+
+  assert.equal(verifySessionToken(expiredToken, secret), false);
+
+  const freshToken = createSessionToken(secret);
+  assert.equal(verifySessionToken(freshToken, secret, 1000), true);
+  assert.equal(verifySessionToken(freshToken, secret, -1), false);
 });
 
 test('createAuthMiddleware protects routes requiring valid session', async () => {

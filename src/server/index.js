@@ -15,20 +15,21 @@ import { startScheduler } from './services/scheduler.service.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export function createServer(cfg = defaultDbConfig) {
-  initDb(cfg.dbPath);
+export function createServer(cfg = {}) {
+  const config = { ...defaultDbConfig, ...cfg };
+  initDb(config.dbPath);
 
   const app = express();
   app.use(express.json());
   app.use(cookieParser());
 
   // Public auth routes
-  app.use('/api/auth', createAuthRouter(cfg));
+  app.use('/api/auth', createAuthRouter(config));
 
   // Protected routes
-  const requireAuth = createAuthMiddleware(cfg.sessionSecret);
+  const requireAuth = createAuthMiddleware(config.sessionSecret);
   app.use('/api/subscriptions', requireAuth, createSubsRouter());
-  app.use('/api', requireAuth, createSettingsRouter(cfg));
+  app.use('/api', requireAuth, createSettingsRouter(config));
 
   // Serve static client build if present
   const distDir = path.resolve(__dirname, '../../dist');
@@ -43,8 +44,8 @@ export function createServer(cfg = defaultDbConfig) {
   }
 
   let schedulerTask = null;
-  if (cfg.enableScheduler !== false) {
-    schedulerTask = startScheduler(cfg);
+  if (config.enableScheduler !== false) {
+    schedulerTask = startScheduler(config);
   }
 
   return { app, schedulerTask };

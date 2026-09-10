@@ -5,6 +5,10 @@ import fs from 'node:fs';
 let dbInstance = null;
 
 export function initDb(dbPath = './data/subscriptions.db') {
+  if (dbInstance) {
+    closeDb();
+  }
+
   const dir = path.dirname(dbPath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });

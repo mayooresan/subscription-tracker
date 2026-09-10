@@ -5,7 +5,9 @@ export async function fetchJson(url, options = {}) {
   });
 
   if (res.status === 401) {
-    window.dispatchEvent(new CustomEvent('auth-unauthorized'));
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      window.dispatchEvent(new CustomEvent('auth-unauthorized'));
+    }
   }
 
   const data = await res.json().catch(() => ({}));
