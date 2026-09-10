@@ -1,0 +1,31 @@
+{
+  "name": "subscription-tracker",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Subscription tracking app with 24-hour Telegram alerts",
+  "main": "src/server/index.js",
+  "scripts": {
+    "start": "node src/server/index.js",
+    "dev:server": "node --watch src/server/index.js",
+    "dev:client": "vite --config src/client/vite.config.js",
+    "build": "vite build --config src/client/vite.config.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.9",
+    "@vitejs/plugin-react": "^4.3.4",
+    "lucide-react": "^0.475.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "supertest": "^7.0.0",
+    "tailwindcss": "^4.0.9",
+    "vite": "^6.2.0"
+  }
+}
