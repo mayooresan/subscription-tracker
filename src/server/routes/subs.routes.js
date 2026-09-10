@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { getDb } from '../db.js';
-import { normalizeToMonthly, advanceToNextFutureRenewal } from '../utils/rollover.js';
+import { normalizeToMonthly } from '../utils/rollover.js';
+
+const VALID_BILLING_CYCLES = ['weekly', 'monthly', 'quarterly', 'yearly'];
 
 export function createSubsRouter() {
   const router = Router();
@@ -76,22 +78,25 @@ export function createSubsRouter() {
     if (!name || typeof name !== 'string' || !name.trim()) {
       return res.status(400).json({ error: 'Subscription name is required' });
     }
-    if (typeof price !== 'number' || price < 0) {
+    if (typeof price !== 'number' || !Number.isFinite(price) || price < 0) {
       return res.status(400).json({ error: 'Valid positive price is required' });
     }
-    const validCycles = ['weekly', 'monthly', 'quarterly', 'yearly'];
-    if (!validCycles.includes(billing_cycle)) {
-      return res.status(400).json({ error: `billing_cycle must be one of: ${validCycles.join(', ')}` });
+    if (!VALID_BILLING_CYCLES.includes(billing_cycle)) {
+      return res.status(400).json({ error: `billing_cycle must be one of: ${VALID_BILLING_CYCLES.join(', ')}` });
     }
     if (!next_renewal_date || !/^\d{4}-\d{2}-\d{2}$/.test(next_renewal_date)) {
       return res.status(400).json({ error: 'next_renewal_date must be in YYYY-MM-DD format' });
     }
 
+    const cleanCategory = (typeof category === 'string' && category.trim()) ? category.trim() : 'General';
+    const cleanNotes = (typeof notes === 'string' && notes.trim()) ? notes.trim() : null;
+    const cleanUrl = (typeof url === 'string' && url.trim()) ? url.trim() : null;
+
     const stmt = db.prepare(`
       INSERT INTO subscriptions (name, price, currency, billing_cycle, next_renewal_date, category, notes, url)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const info = stmt.run(name.trim(), price, currency, billing_cycle, next_renewal_date, category.trim(), notes || null, url || null);
+    const info = stmt.run(name.trim(), price, currency || 'USD', billing_cycle, next_renewal_date, cleanCategory, cleanNotes, cleanUrl);
 
     const created = db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(info.lastInsertRowid);
     res.status(201).json(created);
@@ -101,27 +106,62 @@ export function createSubsRouter() {
   router.put('/:id', (req, res) => {
     const db = getDb();
     const { id } = req.params;
-    const { name, price, currency, billing_cycle, next_renewal_date, category, notes, url } = req.body || {};
+    const body = req.body || {};
 
     const existing = db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(id);
     if (!existing) {
       return res.status(404).json({ error: 'Subscription not found' });
     }
 
-    const stmt = db.prepare(`
+    const { name, price, currency, billing_cycle, next_renewal_date, category, notes, url } = body;
+
+    if ('name' in body && (typeof name !== 'string' || !name.trim())) {
+      return res.status(400).json({ error: 'Subscription name cannot be empty' });
+    }
+    if ('price' in body && (typeof price !== 'number' || !Number.isFinite(price) || price < 0)) {
+      return res.status(400).json({ error: 'Valid positive price is required' });
+    }
+    if ('billing_cycle' in body && !VALID_BILLING_CYCLES.includes(billing_cycle)) {
+      return res.status(400).json({ error: `billing_cycle must be one of: ${VALID_BILLING_CYCLES.join(', ')}` });
+    }
+    if ('next_renewal_date' in body && (typeof next_renewal_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(next_renewal_date))) {
+      return res.status(400).json({ error: 'next_renewal_date must be in YYYY-MM-DD format' });
+    }
+
+    const updatedSub = {
+      name: 'name' in body ? name.trim() : existing.name,
+      price: 'price' in body ? price : existing.price,
+      currency: 'currency' in body ? (typeof currency === 'string' && currency.trim() ? currency.trim() : existing.currency) : existing.currency,
+      billing_cycle: 'billing_cycle' in body ? billing_cycle : existing.billing_cycle,
+      next_renewal_date: 'next_renewal_date' in body ? next_renewal_date : existing.next_renewal_date,
+      category: 'category' in body ? (typeof category === 'string' && category.trim() ? category.trim() : 'General') : existing.category,
+      notes: 'notes' in body ? (notes === null || notes === '' ? null : (typeof notes === 'string' ? notes.trim() : notes)) : existing.notes,
+      url: 'url' in body ? (url === null || url === '' ? null : (typeof url === 'string' ? url.trim() : url)) : existing.url,
+    };
+
+    db.prepare(`
       UPDATE subscriptions SET
-        name = COALESCE(?, name),
-        price = COALESCE(?, price),
-        currency = COALESCE(?, currency),
-        billing_cycle = COALESCE(?, billing_cycle),
-        next_renewal_date = COALESCE(?, next_renewal_date),
-        category = COALESCE(?, category),
-        notes = COALESCE(?, notes),
-        url = COALESCE(?, url),
+        name = ?,
+        price = ?,
+        currency = ?,
+        billing_cycle = ?,
+        next_renewal_date = ?,
+        category = ?,
+        notes = ?,
+        url = ?,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `);
-    stmt.run(name, price, currency, billing_cycle, next_renewal_date, category, notes, url, id);
+    `).run(
+      updatedSub.name,
+      updatedSub.price,
+      updatedSub.currency,
+      updatedSub.billing_cycle,
+      updatedSub.next_renewal_date,
+      updatedSub.category,
+      updatedSub.notes,
+      updatedSub.url,
+      id
+    );
 
     const updated = db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(id);
     res.json(updated);

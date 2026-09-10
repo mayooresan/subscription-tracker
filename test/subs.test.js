@@ -141,6 +141,70 @@ test('PUT /api/subscriptions/:id updates an existing subscription', async () => 
   assert.equal(updateRes.body.category, 'Entertainment');
 });
 
+test('PUT /api/subscriptions/:id validates input fields when provided', async () => {
+  // Empty name
+  await supertest(app)
+    .put('/api/subscriptions/1')
+    .send({ name: '   ' })
+    .expect(400);
+
+  // Negative price
+  await supertest(app)
+    .put('/api/subscriptions/1')
+    .send({ price: -1 })
+    .expect(400);
+
+  // Non-finite price
+  await supertest(app)
+    .put('/api/subscriptions/1')
+    .send({ price: 'invalid' })
+    .expect(400);
+
+  // Invalid billing cycle
+  await supertest(app)
+    .put('/api/subscriptions/1')
+    .send({ billing_cycle: 'biweekly' })
+    .expect(400);
+
+  // Invalid next renewal date
+  await supertest(app)
+    .put('/api/subscriptions/1')
+    .send({ next_renewal_date: '2026/10/01' })
+    .expect(400);
+});
+
+test('PUT /api/subscriptions/:id allows clearing notes and url with null or empty string', async () => {
+  // First set notes and url
+  await supertest(app)
+    .put('/api/subscriptions/1')
+    .send({ notes: 'Some note', url: 'https://netflix.com' })
+    .expect(200);
+
+  // Clear notes with null and url with empty string
+  const clearRes = await supertest(app)
+    .put('/api/subscriptions/1')
+    .send({ notes: null, url: '' })
+    .expect(200);
+
+  assert.equal(clearRes.body.notes, null);
+  assert.equal(clearRes.body.url, null);
+
+  // Set them again
+  await supertest(app)
+    .put('/api/subscriptions/1')
+    .send({ notes: 'Another note', url: 'https://netflix.com' })
+    .expect(200);
+
+  // Clear notes with empty string and url with null
+  const clearRes2 = await supertest(app)
+    .put('/api/subscriptions/1')
+    .send({ notes: '', url: null })
+    .expect(200);
+
+  assert.equal(clearRes2.body.notes, null);
+  assert.equal(clearRes2.body.url, null);
+});
+
 test('PUT, PATCH, DELETE handle 404 for non-existent subscriptions', async () => {
   await supertest(app)
     .put('/api/subscriptions/999')
