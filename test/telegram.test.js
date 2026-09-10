@@ -268,3 +268,122 @@ test('GET /api/notifications/logs retrieves recent logs', async () => {
   assert.equal(res.body[0].subscription_name, 'Vercel Pro');
   assert.equal(res.body[1].subscription_name, 'GitHub Copilot');
 });
+
+test('formatRenewalMessage escapes markdown special characters in name and category', () => {
+  const sub = {
+    name: 'dev_server*pro',
+    price: 29.00,
+    currency: '$',
+    billing_cycle: 'monthly',
+    next_renewal_date: '2026-09-20',
+    category: 'Cloud_Hosting'
+  };
+
+  const message = formatRenewalMessage(sub);
+  assert.ok(message.includes('dev\\_server\\*pro'));
+  assert.ok(message.includes('Cloud\\_Hosting'));
+});
+
+test('GET /api/settings preserves notify_hours_before: 0 via nullish coalescing', async () => {
+  await supertest(app)
+    .put('/api/settings')
+    .send({ notify_hours_before: 0 })
+    .expect(200);
+
+  const res = await supertest(app)
+    .get('/api/settings')
+    .expect(200);
+
+  assert.equal(res.body.notify_hours_before, 0);
+});
+
+test('PUT /api/settings rejects invalid notify_hours_before with 400', async () => {
+  const resNegative = await supertest(app)
+    .put('/api/settings')
+    .send({ notify_hours_before: -5 })
+    .expect(400);
+  assert.ok(resNegative.body.error);
+
+  const resFloat = await supertest(app)
+    .put('/api/settings')
+    .send({ notify_hours_before: 2.5 })
+    .expect(400);
+  assert.ok(resFloat.body.error);
+
+  const resString = await supertest(app)
+    .put('/api/settings')
+    .send({ notify_hours_before: 'not-a-number' })
+    .expect(400);
+  assert.ok(resString.body.error);
+});
+
+test('PUT /api/settings guards against masked tokens containing ... or ****', async () => {
+  // First set a known token
+  await supertest(app)
+    .put('/api/settings')
+    .send({ telegram_bot_token: '123456789:SECRET_BOT_TOKEN' })
+    .expect(200);
+
+  let res = await supertest(app).get('/api/settings').expect(200);
+  assert.equal(res.body.telegram_bot_token_masked, '1234...OKEN');
+
+  // Submit masked token with ellipsis
+  await supertest(app)
+    .put('/api/settings')
+    .send({ telegram_bot_token: '1234...OKEN', telegram_chat_id: 'chat-masked-test' })
+    .expect(200);
+
+  res = await supertest(app).get('/api/settings').expect(200);
+  assert.equal(res.body.telegram_chat_id, 'chat-masked-test');
+  assert.equal(res.body.telegram_bot_token_masked, '1234...OKEN');
+
+  // Submit masked token with asterisks
+  await supertest(app)
+    .put('/api/settings')
+    .send({ telegram_bot_token: '****' })
+    .expect(200);
+
+  res = await supertest(app).get('/api/settings').expect(200);
+  assert.equal(res.body.telegram_bot_token_masked, '1234...OKEN');
+});
+
+test('POST /api/settings/test-telegram guards against masked tokens and falls back to saved token', async () => {
+  let usedUrl = '';
+  global.fetch = async (url, options) => {
+    usedUrl = url;
+    return {
+      ok: true,
+      json: async () => ({ ok: true })
+    };
+  };
+
+  // Ensure DB has known token
+  await supertest(app)
+    .put('/api/settings')
+    .send({ telegram_bot_token: 'saved-db-token' })
+    .expect(200);
+
+  // Send test with masked token containing ...
+  const res = await supertest(app)
+    .post('/api/settings/test-telegram')
+    .send({
+      telegram_bot_token: 'save...oken',
+      telegram_chat_id: 'chat-test'
+    })
+    .expect(200);
+
+  assert.equal(res.body.success, true);
+  assert.equal(usedUrl, 'https://api.telegram.org/botsaved-db-token/sendMessage');
+
+  // Send test with masked token containing ****
+  await supertest(app)
+    .post('/api/settings/test-telegram')
+    .send({
+      telegram_bot_token: '****',
+      telegram_chat_id: 'chat-test'
+    })
+    .expect(200);
+
+  assert.equal(usedUrl, 'https://api.telegram.org/botsaved-db-token/sendMessage');
+});
+

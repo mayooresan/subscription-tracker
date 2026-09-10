@@ -2,6 +2,13 @@ import { Router } from 'express';
 import { getDb } from '../db.js';
 import { sendTelegramMessage } from '../services/telegram.service.js';
 
+function isMaskedOrEmpty(token) {
+  if (token === undefined || token === null) return true;
+  if (typeof token !== 'string') return true;
+  const trimmed = token.trim();
+  return trimmed === '' || trimmed.includes('...') || trimmed.includes('****');
+}
+
 export function createSettingsRouter(config = {}) {
   const router = Router();
 
@@ -20,8 +27,8 @@ export function createSettingsRouter(config = {}) {
       telegram_bot_token_masked: maskedToken,
       has_token: Boolean(token),
       telegram_chat_id: chatId,
-      notify_hours_before: settings.notify_hours_before || config.notifyHoursBefore || 24,
-      currency_symbol: settings.currency_symbol || '$'
+      notify_hours_before: settings.notify_hours_before ?? config.notifyHoursBefore ?? 24,
+      currency_symbol: settings.currency_symbol ?? '$'
     });
   });
 
@@ -29,12 +36,23 @@ export function createSettingsRouter(config = {}) {
     const db = getDb();
     const { telegram_bot_token, telegram_chat_id, notify_hours_before, currency_symbol } = req.body || {};
 
+    if (notify_hours_before !== undefined && notify_hours_before !== null) {
+      const parsed = Number(notify_hours_before);
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        return res.status(400).json({ error: 'notify_hours_before must be an integer greater than or equal to 0' });
+      }
+    }
+
     const current = db.prepare('SELECT * FROM settings WHERE id = 1').get() || {};
 
-    // If token passed is empty or omitted, keep current
-    const tokenToSave = telegram_bot_token !== undefined && telegram_bot_token !== ''
-      ? telegram_bot_token 
+    // Guard against submitting masked tokens or empty strings: retain current token
+    const tokenToSave = !isMaskedOrEmpty(telegram_bot_token)
+      ? telegram_bot_token.trim()
       : (current.telegram_bot_token ?? null);
+
+    const parsedHours = (notify_hours_before !== undefined && notify_hours_before !== null)
+      ? Number(notify_hours_before)
+      : null;
 
     db.prepare(`
       UPDATE settings SET
@@ -47,7 +65,7 @@ export function createSettingsRouter(config = {}) {
     `).run(
       tokenToSave,
       telegram_chat_id !== undefined ? telegram_chat_id : null,
-      notify_hours_before !== undefined ? notify_hours_before : null,
+      parsedHours,
       currency_symbol !== undefined ? currency_symbol : null
     );
 
@@ -57,8 +75,14 @@ export function createSettingsRouter(config = {}) {
   router.post('/settings/test-telegram', async (req, res) => {
     const db = getDb();
     const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get() || {};
-    const botToken = req.body?.telegram_bot_token || settings.telegram_bot_token || config.telegramBotToken;
-    const chatId = req.body?.telegram_chat_id || settings.telegram_chat_id || config.telegramChatId;
+    const candidateToken = req.body?.telegram_bot_token;
+    const botToken = (!isMaskedOrEmpty(candidateToken) ? candidateToken.trim() : null)
+      || settings.telegram_bot_token
+      || config.telegramBotToken;
+    const candidateChatId = req.body?.telegram_chat_id;
+    const chatId = (typeof candidateChatId === 'string' && candidateChatId.trim())
+      ? candidateChatId.trim()
+      : (settings.telegram_chat_id || config.telegramChatId);
 
     const testMsg = `🚀 *Subscription Tracker Test Alert*\n\nYour Telegram notification configuration is working successfully!`;
     const result = await sendTelegramMessage({ botToken, chatId, message: testMsg });

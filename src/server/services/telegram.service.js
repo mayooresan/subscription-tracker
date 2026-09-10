@@ -1,5 +1,12 @@
+export function escapeMarkdown(text) {
+  if (!text || typeof text !== 'string') return '';
+  return text.replace(/[_*`\[]/g, '\\$&');
+}
+
 export function formatRenewalMessage(subscription) {
-  const { name, price, billing_cycle, next_renewal_date, category, url } = subscription;
+  const { price, billing_cycle, next_renewal_date, url } = subscription;
+  const name = escapeMarkdown(subscription.name);
+  const category = escapeMarkdown(subscription.category || 'General');
   const currency = subscription.currency || '$';
   return [
     `🔔 *Subscription Renewal Reminder*`,
@@ -8,7 +15,7 @@ export function formatRenewalMessage(subscription) {
     ``,
     `💵 *Cost:* ${currency}${Number(price).toFixed(2)} (${billing_cycle})`,
     `📅 *Renewal Date:* ${next_renewal_date}`,
-    `📂 *Category:* ${category || 'General'}`,
+    `📂 *Category:* ${category}`,
     url ? `🔗 *Manage Subscription:* ${url}` : null,
     ``,
     `_Sent from your Subscription Tracker_`
