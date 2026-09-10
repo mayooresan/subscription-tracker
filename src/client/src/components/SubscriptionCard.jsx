@@ -1,8 +1,18 @@
 import React from 'react';
 import { Calendar, ExternalLink, Edit2, Trash2, Power } from 'lucide-react';
 
+function getDaysUntil(dateStr) {
+  if (!dateStr) return 0;
+  const [year, month, day] = dateStr.slice(0, 10).split('-').map(Number);
+  const targetUtc = Date.UTC(year, month - 1, day);
+  const now = new Date();
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return Math.round((targetUtc - todayUtc) / (1000 * 60 * 60 * 24));
+}
+
 export function SubscriptionCard({ sub, onEdit, onDelete, onToggle }) {
-  const daysUntil = Math.ceil((new Date(sub.next_renewal_date) - new Date()) / (1000 * 60 * 60 * 24));
+  const daysUntil = getDaysUntil(sub.next_renewal_date);
+  const isOverdue = daysUntil < 0;
   const isImminent = daysUntil <= 1 && daysUntil >= 0;
   const isSoon = daysUntil > 1 && daysUntil <= 3;
 
@@ -35,13 +45,21 @@ export function SubscriptionCard({ sub, onEdit, onDelete, onToggle }) {
           <span className="text-slate-300">{sub.next_renewal_date}</span>
           {(sub.is_active === 1 || sub.is_active === true) && (
             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-              isImminent
+              isOverdue
+                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                : isImminent
                 ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse'
                 : isSoon
                 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                 : 'text-slate-500'
             }`}>
-              {daysUntil === 0 ? 'Today' : daysUntil === 1 ? 'Tomorrow (24h)' : `in ${daysUntil}d`}
+              {daysUntil < 0
+                ? 'Overdue'
+                : daysUntil === 0
+                ? 'Today'
+                : daysUntil === 1
+                ? 'Tomorrow (24h)'
+                : `in ${daysUntil}d`}
             </span>
           )}
         </div>

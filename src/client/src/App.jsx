@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Filter } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import { api } from './api.js';
 import { Navbar } from './components/Navbar.jsx';
 import { LoginView } from './components/LoginView.jsx';
@@ -11,6 +11,7 @@ import { SettingsModal } from './components/SettingsModal.jsx';
 export function App() {
   const [authenticated, setAuthenticated] = useState(null);
   const [subscriptions, setSubscriptions] = useState([]);
+  const [allCategories, setAllCategories] = useState([]);
   const [stats, setStats] = useState(null);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -18,6 +19,16 @@ export function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSubModalOpen, setIsSubModalOpen] = useState(false);
   const [editingSub, setEditingSub] = useState(null);
+
+  async function loadCategories() {
+    try {
+      const allSubs = await api.getSubscriptions();
+      const cats = Array.from(new Set(allSubs.map((s) => s.category).filter(Boolean))).sort();
+      setAllCategories(cats);
+    } catch (err) {
+      console.error('Failed loading categories:', err);
+    }
+  }
 
   async function loadData() {
     try {
@@ -27,6 +38,10 @@ export function App() {
       ]);
       setSubscriptions(subs);
       setStats(st);
+      if (!categoryFilter && !search) {
+        const cats = Array.from(new Set(subs.map((s) => s.category).filter(Boolean))).sort();
+        setAllCategories(cats);
+      }
     } catch (err) {
       console.error('Failed loading subscriptions:', err);
     }
@@ -36,7 +51,6 @@ export function App() {
     api.checkAuth()
       .then((data) => {
         setAuthenticated(data.authenticated);
-        if (data.authenticated) loadData();
       })
       .catch(() => setAuthenticated(false));
 
@@ -53,6 +67,12 @@ export function App() {
     }
   }, [search, categoryFilter, sortOrder, authenticated]);
 
+  useEffect(() => {
+    if (authenticated) {
+      loadCategories();
+    }
+  }, [authenticated]);
+
   if (authenticated === null) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400">
@@ -66,13 +86,10 @@ export function App() {
       <LoginView
         onLoginSuccess={() => {
           setAuthenticated(true);
-          loadData();
         }}
       />
     );
   }
-
-  const categories = Array.from(new Set(subscriptions.map((s) => s.category).filter(Boolean)));
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col">
@@ -100,14 +117,14 @@ export function App() {
               />
             </div>
 
-            {categories.length > 0 && (
+            {allCategories.length > 0 && (
               <select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
                 className="px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-slate-300 text-sm focus:outline-none focus:border-indigo-500"
               >
                 <option value="">All Categories</option>
-                {categories.map((c) => (
+                {allCategories.map((c) => (
                   <option key={c} value={c}>{c}</option>
                 ))}
               </select>
@@ -165,13 +182,24 @@ export function App() {
                 }}
                 onDelete={async (s) => {
                   if (confirm(`Delete ${s.name}?`)) {
-                    await api.deleteSubscription(s.id);
-                    loadData();
+                    try {
+                      await api.deleteSubscription(s.id);
+                      loadData();
+                      loadCategories();
+                    } catch (err) {
+                      console.error('Failed to delete subscription:', err);
+                      alert(`Failed to delete subscription: ${err.message || 'Unknown error'}`);
+                    }
                   }
                 }}
                 onToggle={async (s) => {
-                  await api.toggleSubscription(s.id);
-                  loadData();
+                  try {
+                    await api.toggleSubscription(s.id);
+                    loadData();
+                  } catch (err) {
+                    console.error('Failed to toggle subscription:', err);
+                    alert(`Failed to toggle subscription: ${err.message || 'Unknown error'}`);
+                  }
                 }}
               />
             ))}
@@ -190,6 +218,7 @@ export function App() {
             await api.createSubscription(formData);
           }
           loadData();
+          loadCategories();
         }}
       />
 
