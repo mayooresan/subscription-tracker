@@ -30,6 +30,31 @@ A lightweight, self-hosted web application to track recurring subscriptions and 
    ```
    Open [http://localhost:3000](http://localhost:3000) in your browser.
 
+## Running with Docker / Docker Compose
+
+For deploying on a VPS (e.g. DigitalOcean droplet):
+
+1. **Configure `.env`:**
+   ```bash
+   cp .env.example .env
+   # Set APP_PASSWORD, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+   # Set HOST_PORT if port 3000 is used by another container (e.g. HOST_PORT=3005)
+   ```
+
+2. **Start with Docker Compose:**
+   ```bash
+   docker compose up -d --build
+   ```
+
+3. **Check status & logs:**
+   ```bash
+   docker compose ps
+   docker compose logs -f
+   ```
+
+The SQLite database persists on your host at `./data/subscriptions.db`.
+
+
 ## Environment Variables
 
 | Variable | Description | Default |
