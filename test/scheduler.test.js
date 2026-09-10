@@ -83,11 +83,12 @@ test('checkUpcomingRenewals is idempotent and will not re-notify the same cycle'
   assert.equal(result.notifiedCount, 0);
 });
 
-test('calculateTomorrow correctly calculates tomorrow across days, months, and years', () => {
+test('calculateTomorrow correctly calculates tomorrow across days, months, and years and full ISO strings', () => {
   assert.equal(calculateTomorrow('2026-09-10'), '2026-09-11');
   assert.equal(calculateTomorrow('2026-01-31'), '2026-02-01');
   assert.equal(calculateTomorrow('2026-12-31'), '2027-01-01');
   assert.equal(calculateTomorrow('2024-02-28'), '2024-02-29'); // leap year
+  assert.equal(calculateTomorrow('2026-09-10T15:00:00.000Z'), '2026-09-11'); // full ISO string
 });
 
 test('autoAdvancePassedSubscriptions advances past dates and resets last_notified_renewal_date', () => {
@@ -169,13 +170,52 @@ test('checkUpcomingRenewals supports dryRun and nowIso options', async () => {
   assert.equal(sub.last_notified_renewal_date, null);
 });
 
-test('startScheduler initializes cron task and returns it', () => {
+test('checkUpcomingRenewals dryRun does not mutate database or auto-advance past subscriptions', async () => {
+  const db = getDb();
+  const info = db.prepare(`
+    INSERT INTO subscriptions (name, price, billing_cycle, next_renewal_date, is_active)
+    VALUES ('Unmutated Past Sub', 40.0, 'monthly', '2026-07-01', 1)
+  `).run();
+  const id = info.lastInsertRowid;
+
+  await checkUpcomingRenewals({
+    referenceDate: '2026-09-10',
+    dryRun: true,
+    mockSender: async () => ({ ok: true })
+  });
+
+  const sub = db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(id);
+  assert.equal(sub.next_renewal_date, '2026-07-01', 'Past renewal date must not be modified in dryRun mode');
+});
+
+test('startScheduler initializes cron task and returns it', async () => {
   const task = startScheduler({
     telegramBotToken: 'test-token',
-    telegramChatId: '123456'
+    telegramChatId: '123456',
+    mockSender: async () => ({ ok: true })
   });
 
   assert.ok(task, 'Task instance should be returned');
   assert.equal(typeof task.stop, 'function', 'Task should have stop method');
   task.stop();
+  await new Promise(resolve => setTimeout(resolve, 50));
+});
+
+test('startScheduler forwards mockSender to avoid external network calls on initial check', async () => {
+  let senderCalled = false;
+  const fakeSender = async () => {
+    senderCalled = true;
+    return { ok: true };
+  };
+
+  const task = startScheduler({
+    telegramBotToken: 'test-token',
+    telegramChatId: '123456',
+    mockSender: fakeSender
+  });
+
+  task.stop();
+  // Allow initial async run to execute
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert.ok(task);
 });

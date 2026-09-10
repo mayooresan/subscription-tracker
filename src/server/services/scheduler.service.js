@@ -4,7 +4,8 @@ import { formatRenewalMessage, sendTelegramMessage } from './telegram.service.js
 import { advanceToNextFutureRenewal } from '../utils/rollover.js';
 
 export function calculateTomorrow(referenceDateStr) {
-  const [y, m, d] = referenceDateStr.split('-').map(Number);
+  const cleanDate = (referenceDateStr || '').slice(0, 10);
+  const [y, m, d] = cleanDate.split('-').map(Number);
   const date = new Date(Date.UTC(y, m - 1, d));
   date.setUTCDate(date.getUTCDate() + 1);
   return date.toISOString().slice(0, 10);
@@ -15,15 +16,17 @@ export function autoAdvancePassedSubscriptions(todayStr = new Date().toISOString
   const db = getDb();
   const pastSubs = db.prepare('SELECT * FROM subscriptions WHERE is_active = 1 AND next_renewal_date < ?').all(today);
 
+  const updateStmt = db.prepare(`
+    UPDATE subscriptions SET
+      next_renewal_date = ?,
+      last_notified_renewal_date = NULL,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `);
+
   for (const sub of pastSubs) {
     const nextDate = advanceToNextFutureRenewal(sub.next_renewal_date, sub.billing_cycle, today);
-    db.prepare(`
-      UPDATE subscriptions SET
-        next_renewal_date = ?,
-        last_notified_renewal_date = NULL,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(nextDate, sub.id);
+    updateStmt.run(nextDate, sub.id);
   }
 }
 
@@ -34,8 +37,10 @@ export async function checkUpcomingRenewals(options = {}) {
   const today = options.referenceDate || (options.nowIso ? options.nowIso.slice(0, 10) : new Date().toISOString().slice(0, 10));
   const targetRenewalDate = calculateTomorrow(today);
 
-  // Auto-advance any subscriptions whose renewal date has already passed
-  autoAdvancePassedSubscriptions(today);
+  // Auto-advance any subscriptions whose renewal date has already passed (skip in dry-run mode)
+  if (!options.dryRun) {
+    autoAdvancePassedSubscriptions(today);
+  }
 
   // Fetch settings for telegram token & chat ID
   const settings = db.prepare('SELECT * FROM settings WHERE id = 1').get() || {};
@@ -54,6 +59,23 @@ export async function checkUpcomingRenewals(options = {}) {
   const errors = [];
   const sender = options.mockSender || sendTelegramMessage;
 
+  const updateNotifiedStmt = db.prepare(`
+    UPDATE subscriptions SET
+      last_notified_renewal_date = ?,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `);
+
+  const insertSuccessLogStmt = db.prepare(`
+    INSERT INTO notification_logs (subscription_id, subscription_name, renewal_date, status)
+    VALUES (?, ?, ?, 'SUCCESS')
+  `);
+
+  const insertFailedLogStmt = db.prepare(`
+    INSERT INTO notification_logs (subscription_id, subscription_name, renewal_date, status, error_message)
+    VALUES (?, ?, ?, 'FAILED', ?)
+  `);
+
   for (const sub of candidates) {
     if (options.dryRun) {
       notifiedCount++;
@@ -65,26 +87,15 @@ export async function checkUpcomingRenewals(options = {}) {
 
     if (res.ok) {
       // Mark as notified for this cycle
-      db.prepare(`
-        UPDATE subscriptions SET
-          last_notified_renewal_date = ?,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(targetRenewalDate, sub.id);
+      updateNotifiedStmt.run(targetRenewalDate, sub.id);
 
       // Log success
-      db.prepare(`
-        INSERT INTO notification_logs (subscription_id, subscription_name, renewal_date, status)
-        VALUES (?, ?, ?, 'SUCCESS')
-      `).run(sub.id, sub.name, targetRenewalDate);
+      insertSuccessLogStmt.run(sub.id, sub.name, targetRenewalDate);
 
       notifiedCount++;
     } else {
       errors.push(`Failed to notify ${sub.name}: ${res.error}`);
-      db.prepare(`
-        INSERT INTO notification_logs (subscription_id, subscription_name, renewal_date, status, error_message)
-        VALUES (?, ?, ?, 'FAILED', ?)
-      `).run(sub.id, sub.name, targetRenewalDate, res.error);
+      insertFailedLogStmt.run(sub.id, sub.name, targetRenewalDate, res.error);
     }
   }
 
@@ -95,7 +106,8 @@ export function startScheduler(config = {}) {
   // Check immediately on startup
   checkUpcomingRenewals({
     telegramBotToken: config.telegramBotToken,
-    telegramChatId: config.telegramChatId
+    telegramChatId: config.telegramChatId,
+    mockSender: config.mockSender
   }).catch(err => console.error('[Scheduler] Initial run error:', err));
 
   // Run every hour at minute 0: "0 * * * *"
@@ -103,7 +115,8 @@ export function startScheduler(config = {}) {
     try {
       const { notifiedCount, errors } = await checkUpcomingRenewals({
         telegramBotToken: config.telegramBotToken,
-        telegramChatId: config.telegramChatId
+        telegramChatId: config.telegramChatId,
+        mockSender: config.mockSender
       });
       if (notifiedCount > 0) {
         console.log(`[Scheduler] Sent ${notifiedCount} Telegram renewal alerts.`);
