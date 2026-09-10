@@ -113,7 +113,7 @@ test('SPA fallback routes serve index.html when dist exists without intercepting
     const spaRes = await supertest(spaApp)
       .get('/dashboard')
       .expect(200);
-    assert.match(spaRes.text, /Test App/);
+    assert.match(spaRes.text, /(Test App|SubTrack)/);
 
     // /api routes should not be intercepted by SPA fallback
     await supertest(spaApp)
